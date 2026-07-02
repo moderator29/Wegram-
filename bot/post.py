@@ -40,10 +40,10 @@ STATE_DIR = ROOT / ".state"
 STATE_FILE = STATE_DIR / "cycle.json"
 
 # Today only, the first post of the day starts at this time (interpreted in
-# the configured timezone, which is UTC). 16:10 UTC == 5:10 PM Nigeria time
+# the configured timezone, which is UTC). 16:20 UTC == 5:20 PM Nigeria time
 # (UTC+1). Every other day uses start_time from posts.json.
 FIRST_DAY = date(2026, 7, 2)
-FIRST_DAY_START = "16:10"
+FIRST_DAY_START = "16:20"
 
 
 def telegram_api(token: str, method: str, payload: dict) -> dict:
