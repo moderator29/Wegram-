@@ -1,0 +1,18 @@
+{
+  "timezone": "Africa/Lagos",
+  "start_time": "09:00",
+  "interval_minutes": 30,
+  "posts": [
+    {
+      "text": "Good morning fam! This is post number 1. Replace this text with your own post.",
+      "image": "https://i.ibb.co/REPLACE-ME/banner1.jpg"
+    },
+    {
+      "text": "This is post number 2, it goes out 30 minutes after post 1.",
+      "image": "https://i.ibb.co/REPLACE-ME/banner2.jpg"
+    },
+    {
+      "text": "This is post number 3. A post with no image also works - just remove the image line."
+    }
+  ]
+}
