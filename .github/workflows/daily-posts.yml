@@ -2,7 +2,7 @@ name: Daily channel posts
 
 on:
   schedule:
-    # Runs every 30 minutes. The script itself decides which posts are
+    # Runs every 30 minutes. The script itself decides whether a post is
     # due based on posts.json, so nothing is sent outside your schedule.
     - cron: "*/30 * * * *"
   workflow_dispatch:
@@ -25,20 +25,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Send due posts
+      - name: Send due post
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           TEST_POST_INDEX: ${{ github.event.inputs.test_post_index }}
         run: python3 bot/post.py
 
-      - name: Remember which posts were sent
+      - name: Remember cycle position
         run: |
+          if [ ! -d .state ]; then
+            echo "No .state directory yet; nothing to commit."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A .state
-          if ! git diff --cached --quiet; then
-            git commit -m "Record sent posts"
+          git add .state
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+          else
+            git commit -m "Update posting cycle position"
             git pull --rebase origin "${GITHUB_REF_NAME}" || true
             git push
           fi

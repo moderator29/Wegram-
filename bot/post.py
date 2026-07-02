@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""Sends scheduled daily posts to a Telegram channel.
+"""Sends scheduled posts to a Telegram channel, looping forever.
 
-Reads posts.json from the repo root. Each day, post #1 goes out at
-start_time, post #2 goes out interval_minutes later, and so on.
+Reads posts.json from the repo root. Posts go out one at a time, one per
+run, starting at start_time and repeating every interval_minutes. When the
+last post in the list has been sent, the schedule automatically continues
+again from post #1, cycling through the list forever (1 -> 2 -> ... ->
+last -> 1 -> 2 -> ...).
 
-The script is meant to be run every ~30 minutes by GitHub Actions.
-On each run it sends every post whose scheduled time has passed and
-that hasn't been sent yet today (tracked in .state/<date>.json), so a
-late or skipped run simply catches up on the next one.
+The script is meant to be run every ~30 minutes by GitHub Actions. On each
+run it works out whether a new posting slot is due and, if so, sends the
+next post in the never-ending cycle. The cycle position is remembered in
+.state/cycle.json (committed back to the repo by the workflow) so posting
+picks up exactly where it left off across runs and across days.
+
+Special start times:
+  * Today only, posting starts at 16:10 UTC (5:10 PM Nigeria time, UTC+1).
+  * From tomorrow onward, posting starts every day at start_time from
+    posts.json (09:00 UTC).
 
 Environment variables:
   BOT_TOKEN        Telegram bot token from @BotFather (required)
@@ -18,18 +27,24 @@ Environment variables:
 
 import json
 import os
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_FILE = ROOT / "posts.json"
 STATE_DIR = ROOT / ".state"
-STATE_DAYS_TO_KEEP = 7
+STATE_FILE = STATE_DIR / "cycle.json"
+
+# Today only, the first post of the day starts at this time (interpreted in
+# the configured timezone, which is UTC). 16:30 UTC == 5:30 PM Nigeria time
+# (UTC+1) and lands exactly on a */30 cron tick. Every other day uses
+# start_time from posts.json.
+FIRST_DAY = date(2026, 7, 2)
+FIRST_DAY_START = "16:30"
 
 
 def telegram_api(token: str, method: str, payload: dict) -> dict:
@@ -46,6 +61,11 @@ def telegram_api(token: str, method: str, payload: dict) -> dict:
             "not an admin of the channel, or an image link that is not a "
             "direct link to the image file."
         )
+    except urllib.error.URLError as err:
+        raise SystemExit(
+            f"Could not reach Telegram API for {method}: {err.reason}\n"
+            "Check your network connection and try again."
+        )
 
 
 def send_post(token: str, chat_id: str, post: dict) -> None:
@@ -60,13 +80,31 @@ def send_post(token: str, chat_id: str, post: dict) -> None:
         telegram_api(token, "sendMessage", {"chat_id": chat_id, "text": text})
 
 
-def cleanup_old_state(today: date) -> None:
-    if not STATE_DIR.is_dir():
-        return
-    cutoff = (today - timedelta(days=STATE_DAYS_TO_KEEP)).isoformat()
-    for f in STATE_DIR.glob("*.json"):
-        if f.stem < cutoff:  # ISO dates compare correctly as strings
-            f.unlink()
+def load_state() -> dict:
+    """Return the persistent cycle state, tolerating a missing/corrupt file."""
+    if STATE_FILE.exists():
+        try:
+            data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            return {
+                "next_index": int(data.get("next_index", 0)),
+                "date": str(data.get("date", "")),
+                "slots_today": int(data.get("slots_today", 0)),
+            }
+        except (ValueError, OSError):
+            pass
+    return {"next_index": 0, "date": "", "slots_today": 0}
+
+
+def start_time_for(now: datetime, config: dict) -> datetime:
+    """Return the datetime at which posting starts on now's date."""
+    if now.date() == FIRST_DAY:
+        start_str = FIRST_DAY_START
+    else:
+        start_str = config.get("start_time", "09:00")
+    # Accept "HH:MM" (and tolerate a stray ":SS" if present).
+    parts = start_str.split(":")
+    hour, minute = int(parts[0]), int(parts[1])
+    return now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 
 def main() -> None:
@@ -96,35 +134,47 @@ def main() -> None:
 
     tz = ZoneInfo(config.get("timezone", "UTC"))
     now = datetime.now(tz)
-    hour, minute = map(int, config.get("start_time", "09:00").split(":"))
-    first_post_at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     interval_min = int(config.get("interval_minutes", 30))
+    start = start_time_for(now, config)
 
+    state = load_state()
     today = now.date().isoformat()
-    state_file = STATE_DIR / f"{today}.json"
-    posted = set(json.loads(state_file.read_text())) if state_file.exists() else set()
+    if state["date"] != today:
+        # A new day: the daily slot counter resets, but next_index carries
+        # over so the cycle keeps advancing across days without repeating a
+        # slot or ever stopping.
+        state["date"] = today
+        state["slots_today"] = 0
 
-    due = [
-        i
-        for i in range(len(posts))
-        if i not in posted
-        and now.timestamp() >= first_post_at.timestamp() + i * interval_min * 60
-    ]
-    if not due:
-        print(f"Nothing due at {now:%Y-%m-%d %H:%M %Z}. {len(posted)}/{len(posts)} sent today.")
+    if now < start:
+        print(f"Before today's start ({start:%H:%M %Z}); nothing due yet.")
         return
 
-    STATE_DIR.mkdir(exist_ok=True)
-    for i in due:
-        print(f"Sending post #{i + 1} of {len(posts)}...")
-        send_post(token, chat_id, posts[i])
-        posted.add(i)
-        # Save after every send so a failure mid-run never causes repeats.
-        state_file.write_text(json.dumps(sorted(posted)))
-        print(f"Post #{i + 1} sent.")
+    # How many posting slots have opened today, counting the one at `start`.
+    elapsed = (now - start).total_seconds()
+    slots_due_today = int(elapsed // (interval_min * 60)) + 1
 
-    cleanup_old_state(now.date())
-    print(f"Done. {len(posted)}/{len(posts)} posts sent today.")
+    if slots_due_today <= state["slots_today"]:
+        print(
+            f"Nothing due at {now:%Y-%m-%d %H:%M %Z}. "
+            f"{state['slots_today']} post(s) already sent today."
+        )
+        return
+
+    # Send exactly one post per run, so a missed run never floods the
+    # channel with catch-up posts and the cadence stays ~one per interval.
+    n = len(posts)
+    idx = state["next_index"] % n
+    print(f"Sending post #{idx + 1} of {n} (cycle position {state['next_index'] + 1})...")
+    send_post(token, chat_id, posts[idx])
+
+    state["next_index"] += 1
+    state["slots_today"] += 1
+    STATE_DIR.mkdir(exist_ok=True)
+    STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
+
+    next_up = state["next_index"] % n + 1
+    print(f"Post #{idx + 1} sent. {state['slots_today']} sent today; next up is post #{next_up}.")
 
 
 if __name__ == "__main__":
