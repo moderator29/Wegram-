@@ -1,0 +1,44 @@
+name: Daily channel posts
+
+on:
+  schedule:
+    # Runs every 30 minutes. The script itself decides which posts are
+    # due based on posts.json, so nothing is sent outside your schedule.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_post_index:
+        description: "Test: send this post number right now (1 = first post). Leave empty for a normal run."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: telegram-poster
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Send due posts
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          TEST_POST_INDEX: ${{ github.event.inputs.test_post_index }}
+        run: python3 bot/post.py
+
+      - name: Remember which posts were sent
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A .state
+          if ! git diff --cached --quiet; then
+            git commit -m "Record sent posts"
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            git push
+          fi
