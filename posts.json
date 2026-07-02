@@ -1,6 +1,7 @@
 {
   "timezone": "UTC",
-  "start_time": "12:00",
+  "start_time": "11:00",
+  "start_time_overrides": { "2026-07-02": "13:20" },
   "interval_minutes": 40,
   "posts": [
     { "text": "REPLACE WITH POST 1 CAPTION", "image": "https://i.ibb.co/REPLACE-ME/banner1.jpg" },

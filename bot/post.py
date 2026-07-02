@@ -2,7 +2,9 @@
 """Sends scheduled daily posts to a Telegram channel.
 
 Reads posts.json from the repo root. Each day, post #1 goes out at
-start_time, post #2 goes out interval_minutes later, and so on.
+start_time, post #2 goes out interval_minutes later, and so on. A
+specific date can use a different start time via start_time_overrides
+(see posts.json) without affecting any other day.
 
 The script is meant to be run every ~30 minutes by GitHub Actions.
 On each run it sends every post whose scheduled time has passed and
@@ -96,11 +98,17 @@ def main() -> None:
 
     tz = ZoneInfo(config.get("timezone", "UTC"))
     now = datetime.now(tz)
-    hour, minute = map(int, config.get("start_time", "09:00").split(":"))
+    today = now.date().isoformat()
+
+    # start_time_overrides lets a specific date use a different start time,
+    # e.g. {"2026-07-02": "13:20"} for a one-off later start today. Any
+    # date not listed (including tomorrow) just uses the normal start_time.
+    overrides = config.get("start_time_overrides", {})
+    todays_start_time = overrides.get(today, config.get("start_time", "09:00"))
+    hour, minute = map(int, todays_start_time.split(":"))
     first_post_at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     interval_min = int(config.get("interval_minutes", 30))
 
-    today = now.date().isoformat()
     state_file = STATE_DIR / f"{today}.json"
     posted = set(json.loads(state_file.read_text())) if state_file.exists() else set()
 
