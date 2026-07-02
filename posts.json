@@ -1,6 +1,6 @@
 {
   "timezone": "UTC",
-  "start_time": "11:30",
+  "start_time": "12:00",
   "interval_minutes": 40,
   "posts": [
     { "text": "REPLACE WITH POST 1 CAPTION", "image": "https://i.ibb.co/REPLACE-ME/banner1.jpg" },
@@ -11,7 +11,7 @@
     { "text": "REPLACE WITH POST 6 CAPTION", "image": "https://i.ibb.co/REPLACE-ME/banner6.jpg" },
     { "text": "REPLACE WITH POST 7 CAPTION", "image": "https://i.ibb.co/REPLACE-ME/banner7.jpg" },
     { "text": "REPLACE WITH POST 8 CAPTION", "image": "https://i.ibb.co/REPLACE-ME/banner8.jpg" },
-    { "text": "REPLACE WITH POST 9 CAPTION", "image": "https://i.ibb.co/REPLACE-ME/banner9.jpg" },
-    { "text": "REPLACE WITH POST 10 CAPTION", "image": "https://i.ibb.co/REPLACE-ME/banner10.jpg" }
+    { "text": "REPLACE WITH POST 9 CAPTION (no banner - see how this one has no image line)" },
+    { "text": "REPLACE WITH POST 10 CAPTION (no banner - see how this one has no image line)" }
   ]
 }
